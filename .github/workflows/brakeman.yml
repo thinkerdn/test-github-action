@@ -33,26 +33,50 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
+    # Check if this is a Ruby project before proceeding
+    - name: Check for Ruby files
+      id: check-ruby
+      run: |
+        if find . -name "*.rb" -o -name "Gemfile" -o -name "Rakefile" | grep -q .; then
+          echo "ruby-project=true" >> $GITHUB_OUTPUT
+          echo "Ruby files found, proceeding with Brakeman scan"
+        else
+          echo "ruby-project=false" >> $GITHUB_OUTPUT
+          echo "No Ruby files found, skipping Brakeman scan"
+        fi
+
     # Customize the ruby version depending on your needs
     - name: Setup Ruby
+      if: steps.check-ruby.outputs.ruby-project == 'true'
       uses: ruby/setup-ruby@55283cc23133118229fd3f97f9336ee23a179fcf # v1.146.0
       with:
-        ruby-version: '2.7'
+        ruby-version: '3.1' # Updated to a more recent Ruby version
 
     - name: Setup Brakeman
+      if: steps.check-ruby.outputs.ruby-project == 'true'
       env:
-        BRAKEMAN_VERSION: '4.10' # SARIF support is provided in Brakeman version 4.10+
+        BRAKEMAN_VERSION: '6.0' # Updated to latest version with better SARIF support
       run: |
         gem install brakeman --version $BRAKEMAN_VERSION
 
     # Execute Brakeman CLI and generate a SARIF output with the security issues identified during the analysis
     - name: Scan
+      if: steps.check-ruby.outputs.ruby-project == 'true'
       continue-on-error: true
       run: |
         brakeman -f sarif -o output.sarif.json .
 
     # Upload the SARIF file generated in the previous step
     - name: Upload SARIF
+      if: steps.check-ruby.outputs.ruby-project == 'true' && hashFiles('output.sarif.json') != ''
       uses: github/codeql-action/upload-sarif@v3
       with:
         sarif_file: output.sarif.json
+
+    # Skip message for non-Ruby projects
+    - name: Skip Brakeman for non-Ruby project
+      if: steps.check-ruby.outputs.ruby-project == 'false'
+      run: |
+        echo "::notice::Brakeman scan skipped - no Ruby files detected in this repository"
+        echo "This workflow is designed for Ruby on Rails applications."
+        echo "Consider removing this workflow or adding Ruby files to enable security scanning."
